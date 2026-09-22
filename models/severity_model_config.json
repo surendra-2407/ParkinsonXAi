@@ -1,0 +1,32 @@
+{
+  "motor_UPDRS_model": "ExtraTrees",
+  "total_UPDRS_model": "LightGBM_Tuned",
+  "motor_test_mae": 7.2477,
+  "motor_test_rmse": 8.719,
+  "motor_test_r2": -1.806,
+  "total_test_mae": 7.2236,
+  "total_test_rmse": 9.062,
+  "total_test_r2": -2.3335,
+  "features_used": [
+    "age",
+    "sex",
+    "test_time",
+    "Jitter(%)",
+    "Jitter:RAP",
+    "Jitter:PPQ5",
+    "Jitter:DDP",
+    "Shimmer",
+    "Shimmer(dB)",
+    "Shimmer:APQ3",
+    "Shimmer:APQ5",
+    "Shimmer:APQ11",
+    "Shimmer:DDA",
+    "NHR",
+    "HNR",
+    "RPDE",
+    "DFA",
+    "PPE"
+  ],
+  "n_features": 18,
+  "splitting": "subject-wise GroupKFold, 42 subjects"
+}

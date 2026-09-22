@@ -1,0 +1,5 @@
+dataset,method,n_features,val_acc,val_auc
+audio_dataset1,mutual_info,20,0.9765,0.9994
+audio_dataset1,mutual_info,50,0.9765,0.9981
+audio_dataset1,mutual_info,100,0.9882,0.9992
+audio_dataset1,mutual_info,219,0.9765,0.9988

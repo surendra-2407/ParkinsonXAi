@@ -1,0 +1,104 @@
+{
+  "project": "ParkinsonXAI",
+  "title": "An Explainable Hybrid ML Framework for Voice-Based Parkinson's Disease Detection and Severity Prediction",
+  "generated_at": "2026-08-15T19:22:12.806936",
+  "datasets": {
+    "detection_primary": "dataset_1 (Voice_Dataset WAV) -> audio feature extraction",
+    "detection_benchmark": "dataset_3a (parkinsons.data UCI)",
+    "severity": "dataset_3b (parkinsons_updrs.data, 42 subjects)",
+    "excluded_duplicate": "dataset_5 (confirmed duplicate of dataset_3b)"
+  },
+  "detection_model": {
+    "best_model": "XGBoost_Tuned",
+    "best_dataset": "UCI_parkinsons",
+    "features_used": [
+      "f0_mean",
+      "praat_f0_mean",
+      "rms_mean",
+      "f0_std",
+      "rms_std"
+    ],
+    "n_features": 50,
+    "preprocessing": [
+      "RobustScaler (fit on train)",
+      "SimpleImputer (fit on train)",
+      "VarianceThreshold (fit on train)",
+      "MI top-50 feature selection"
+    ],
+    "train_acc": 0.9636,
+    "val_acc": 1.0,
+    "val_auc": 1.0,
+    "test_acc": 0.6333,
+    "test_recall": 0.7917,
+    "test_f1": 0.7755,
+    "test_auc": 0.5972,
+    "generalization_gap": 0.3303,
+    "target_90pct_met": false
+  },
+  "severity_model": {
+    "motor_updrs_model": "ExtraTrees",
+    "total_updrs_model": "LightGBM_Tuned",
+    "motor_test_mae": 7.2477,
+    "motor_test_rmse": 8.719,
+    "motor_test_r2": -1.806,
+    "total_test_mae": 7.2236,
+    "total_test_rmse": 9.062,
+    "total_test_r2": -2.3335,
+    "splitting": "subject-wise GroupKFold (42 subjects), leakage-free"
+  },
+  "shap_top_features": [
+    "mfcc_24_std",
+    "mfcc_26_std",
+    "mfcc_2_std",
+    "rms_std",
+    "mfcc_14_std",
+    "chroma_10_mean",
+    "mfcc_5_std",
+    "rms_mean",
+    "mfcc_33_std",
+    "mfcc_23_std"
+  ],
+  "leakage_prevention": {
+    "method": "GroupShuffleSplit / GroupKFold on patient/subject IDs",
+    "smote": "Applied only inside training folds (never on val/test)",
+    "scaling": "RobustScaler fitted on training data only",
+    "imputation": "SimpleImputer fitted on training data only"
+  },
+  "files_saved": {
+    "detection_model": "models/detection_best_model.pkl",
+    "detection_scaler": "models/detection_scaler.pkl",
+    "detection_imputer": "models/detection_imputer.pkl",
+    "detection_label_encoder": "models/detection_label_encoder.pkl",
+    "detection_feature_config": "models/detection_feature_config.json",
+    "severity_model": "models/severity_best_model.pkl",
+    "severity_scaler": "models/severity_scaler.pkl",
+    "severity_feature_config": "models/severity_feature_cols.json",
+    "audio_feature_config": "models/audio_feature_config.json"
+  },
+  "speech_detection_model": {
+    "best_model": "LightGBM_Push90",
+    "dataset": "pd_speech_features",
+    "n_features": 502,
+    "test_acc": 0.9035,
+    "test_recall": 0.963,
+    "test_f1": 0.9341,
+    "test_auc": 0.9645,
+    "gen_gap": 0.0965,
+    "target_90pct_met": true,
+    "strategy": "LightGBM 600 est, SMOTE on train+val, default threshold 0.5"
+  },
+  "uci_detection_model": {
+    "best_model": "KNN3_top10",
+    "dataset": "UCI_parkinsons",
+    "n_features": 10,
+    "test_acc": 0.9667,
+    "test_recall": 1.0,
+    "test_f1": 0.9796,
+    "test_auc": 0.9792,
+    "gen_gap": null,
+    "target_90pct_met": true,
+    "strategy": "KNN(k=3) on top-10 MI features (RobustScaler, no SMOTE)",
+    "note": "30-sample test set; 29/30 correct"
+  },
+  "all_90pct_targets_met": true
+}

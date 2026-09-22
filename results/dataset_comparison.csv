@@ -1,0 +1,7 @@
+dataset,n_samples,n_features,target,role,used
+dataset_1 (audio),1134,extracted (400+),binary PD/HC,Primary Detection,True
+dataset_2 (pd_speech_features),756,753,binary PD/HC,Secondary Detection,True
+dataset_3a (parkinsons.data),195,22,binary PD/HC,Benchmark,True
+dataset_3b (parkinsons_updrs),5875,16,motor_UPDRS + total_UPDRS,Severity Regression,True
+dataset_4 (Parkinson_Multiple_Sound),unknown,unknown,unknown,Excluded (RAR inaccessible),False
+dataset_5 (duplicate UPDRS),5875,22,motor/total UPDRS,EXCLUDED (duplicate),False

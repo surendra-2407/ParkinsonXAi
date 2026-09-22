@@ -1,0 +1,88 @@
+# =====================
+# Secrets & Environment
+# =====================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# =====================
+# Jupyter Notebooks
+# =====================
+.ipynb_checkpoints/
+*.ipynb
+
+# =====================
+# ML / Data
+# =====================
+# Large dataset zips — tracked via Git LFS (see .gitattributes)
+# datasets/  <-- removed; now handled by Git LFS
+# Large trained model files — tracked via Git LFS (see .gitattributes)
+# models/*.pkl  <-- removed; now handled by Git LFS
+# Intermediate processed files (keep structure, ignore data)
+processed/tabular/*.csv
+processed/audio_features/*.csv
+# CatBoost training artifacts — included in repo
+# catboost_info/  <-- removed; now tracked
+
+# =====================
+# Node / Frontend
+# =====================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.cache/
+*.local
+
+# =====================
+# IDE & OS
+# =====================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =====================
+# Logs
+# =====================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
