@@ -266,25 +266,42 @@ ParkinsonXAi-main/
 │   ├── vite.config.ts                  <-- Vite configuration & proxy settings
 │   ├── tsconfig.json                   <-- TypeScript strict compiler rules
 │   └── src/
-│       ├── App.tsx                     <-- Root component, navigation router & state
+│       ├── App.tsx                     <-- Root component, navigation router & routes
 │       ├── App.css                     <-- Primary clinical glassmorphism design system
-│       ├── index.css                   <-- Base typography, resets & CSS variables
+│       ├── index.css                   <-- Base typography, resets & CSS utility classes
 │       ├── pages/
-│       │   ├── AnalyzePage.tsx         <-- Audio upload, recording & live prediction UI
-│       │   ├── DashboardPage.tsx       <-- Aggregate stats, model metrics & research cards
-│       │   ├── HistoryPage.tsx         <-- Saved analysis audit log
-│       │   └── HowItWorksPage.tsx      <-- Methodology, acoustic science & architecture
+│       │   ├── HomePage.tsx            <-- Audio dropzone, mic recorder & live submission
+│       │   ├── ResultsPage.tsx         <-- Prediction card, confidence, SHAP, & plain-language summary
+│       │   ├── DashboardPage.tsx       <-- System telemetry, benchmark status & active models
+│       │   ├── HistoryPage.tsx         <-- Filterable audit log with CSV export & details drawer
+│       │   ├── SHAPExplainabilityPage.tsx <-- Interactive XAI hub & global feature rankings
+│       │   ├── ResearchOverviewPage.tsx <-- 5-tab research center (Models, UPDRS, Datasets, Features, Guide)
+│       │   ├── DatasetInfoPage.tsx     <-- Deep-dive into Datasets 1, 2, 3a, 3b audits
+│       │   ├── FeatureEngineeringPage.tsx <-- Breakdown of 220 raw to 50 selected acoustic features
+│       │   ├── ModelPerformancePage.tsx <-- Comprehensive benchmark tables across models
+│       │   ├── UPDRSSeverityPage.tsx   <-- MDS-UPDRS regression evaluations & R² limits
+│       │   └── HowItWorksPage.tsx      <-- Methodology & acoustic science guide
 │       ├── components/
-│       │   ├── AudioInput.tsx          <-- Drag-and-drop file upload & live mic recorder
-│       │   ├── ResultCard.tsx          <-- Status banner, probability meter & risk tag
-│       │   ├── ShapVisualization.tsx   <-- Illustrative SHAP feature attribution charts
-│       │   ├── BiomarkerBreakdown.tsx  <-- Jitter, Shimmer, HNR, Pitch gauge displays
-│       │   ├── SeverityMeter.tsx       <-- AudioProxy 0-100 gauge with clinical stages
-│       │   ├── WaveformVisualizer.tsx  <-- Canvas-based interactive audio wave renderer
-│       │   ├── Navbar.tsx              <-- Header bar with status indicators & nav links
-│       │   └── Footer.tsx              <-- Institution & Homies Studio attribution
-│       └── services/
-│           └── api.ts                  <-- Axios/Fetch client connecting to FastAPI backend
+│       │   ├── Navigation.tsx          <-- Top navigation bar with backend health indicator
+│       │   ├── AudioInput.tsx / AudioUpload.tsx <-- Audio dropzone & file validation
+│       │   ├── LiveRecorder.tsx        <-- In-browser microphone recorder & WAV converter
+│       │   ├── PlainLanguageExplanation.tsx <-- Accessible patient-friendly translation & recommendations
+│       │   ├── ClinicalExplanation.tsx <-- Clinician biomechanical feature breakdown
+│       │   ├── ShapChart.tsx           <-- Interactive horizontal SHAP attribution chart
+│       │   ├── SeverityGauge.tsx       <-- AudioProxy 0–100 impairment meter
+│       │   ├── ConfidenceRing.tsx      <-- Visual SVG circular confidence gauge
+│       │   ├── PredictionHistory.tsx   <-- Quick recent predictions list
+│       │   ├── ModelCard.tsx           <-- Reusable benchmark performance card
+│       │   └── FeatureGlossary.tsx     <-- Acoustic biomarker reference modal
+│       ├── api/
+│       │   └── parkinsonApi.ts         <-- Axios API client covering all 17 backend endpoints
+│       ├── utils/
+│       │   ├── plainLanguageExplainer.ts <-- Rule-based patient summary generator
+│       │   ├── clinicalExplainer.ts    <-- Technical clinical notes generator
+│       │   └── wavEncoder.ts           <-- Browser PCM WAV audio encoder
+│       └── hooks/
+│           ├── useAnalysis.ts          <-- Analysis execution & async state
+│           └── useSession.ts           <-- Anonymous session tracking
 │
 ├── models/                             <-- Serialized ML & Preprocessing Artifacts (Git LFS)
 │   ├── detection_best_model.pkl        <-- Deployed Tuned LightGBM binary classifier (Dataset 1)
@@ -517,53 +534,123 @@ Subject 4, Subject 5             ──► Test Set  (Unseen test subjects only)
 
 ## 16. Frontend User Interface & Pages
 
-The frontend is a React 19 single-page application built with modern glassmorphism design tokens, responsive data grids, and visual audio playback.
+The frontend is a React 19 single-page application built with modern glassmorphism design tokens, responsive data grids, interactive Recharts visualizations, and in-browser audio capture.
 
 *(Illustrative Layout Diagram)*:
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  [Logo] ParkinsonXAI          [Analyze]  [Dashboard]  [History]  [Docs]│
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│   ANALYZE PATIENT VOICE RECORDING                                      │
-│   ┌───────────────────────────────────┐  ┌──────────────────────────┐  │
-│   │ [Audio Dropzone / Microphone]     │  │ DETECTION RESULT:        │  │
-│   │  - Upload .WAV, .MP3, .FLAC       │  │ ● PARKINSON'S DETECTED   │  │
-│   │  - Live Interactive Waveform      │  │ Probability: 0.89        │  │
-│   │  - Play / Pause Audio Controls    │  │ Severity: Moderate (42)  │  │
-│   └───────────────────────────────────┘  └──────────────────────────┘  │
-│                                                                        │
-│   EXPLAINABLE AI (SHAP ATTRIBUTION)      ACOUSTIC BIOMARKERS           │
-│   ┌───────────────────────────────────┐  ┌──────────────────────────┐  │
-│   │ Jitter (RAP)      ████████ (+0.21)│  │ Pitch (F0):   164.2 Hz   │  │
-│   │ Shimmer (APQ5)    ██████   (+0.15)│  │ Jitter:       1.84%      │  │
-│   │ HNR               ████     (-0.11)│  │ Shimmer:      4.20%      │  │
-│   │ MFCC 1 (Std)      ███      (+0.08)│  │ HNR:          14.2 dB    │  │
-│   └───────────────────────────────────┘  └──────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│  [Logo] ParkinsonXAI    [Analyze]  [Results]  [Dashboard]  [History]  [SHAP XAI]  [Research]│
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                        │
+│   ANALYZE PATIENT VOICE RECORDING                                                      │
+│   ┌───────────────────────────────────┐  ┌──────────────────────────────────────────┐  │
+│   │ [Audio Dropzone / Microphone]     │  │ DETECTION VERDICT:                       │  │
+│   │  - Upload .WAV, .MP3, .FLAC, .OGG │  │ ● PARKINSON'S DETECTED (Confidence: 79%)│  │
+│   │  - In-Browser Live WAV Recorder   │  │ AudioProxy Severity: Moderate (42.5/100) │  │
+│   │  - Sample Pre-loaded Audio Files  │  │ Status: Clinical Review Recommended      │  │
+│   └───────────────────────────────────┘  └──────────────────────────────────────────┘  │
+│                                                                                        │
+│   EXPLAINABLE AI (SHAP ATTRIBUTION)      PLAIN-LANGUAGE & CLINICAL EXPLANATIONS        │
+│   ┌───────────────────────────────────┐  ┌──────────────────────────────────────────┐  │
+│   │ Jitter (RAP)      ████████ (+0.21)│  │ [Patient Report] Clear, jargon-free voice│  │
+│   │ Shimmer (APQ5)    ██████   (+0.15)│  │ analysis summary & daily care suggestions │  │
+│   │ HNR               ████     (-0.11)│  │ [Clinician Mode] Detailed biomechanical  │  │
+│   │ MFCC 1 (Std)      ███      (+0.08)│  │ vocal fold perturbation pathology notes  │  │
+│   └───────────────────────────────────┘  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Analyze Page (`/`):** Audio upload/recording interface, visual waveform player, prediction card, confidence gauge, SHAP waterfall explanation, biomarker metrics, and clinical recommendations.
-2. **Dashboard Page (`/dashboard`):** System performance telemetry, benchmark model cards, dataset overview, active model metadata, and research metrics.
-3. **History Page (`/history`):** Audit log of past audio analyses, timestamped records, prediction outcomes, severity scores, and feature snapshots (backed by MongoDB or in-memory cache).
-4. **Methodology Page (`/how-it-works`):** Scientific breakdown explaining acoustic feature extraction, patient-independent validation, and the math behind SHAP.
+### Complete Page Breakdown
+
+1. **Analyze Page (`/` — `HomePage.tsx`):**
+   - **Multi-Format Audio Dropzone:** Drag-and-drop or select `.wav`, `.mp3`, `.flac`, or `.ogg` audio files.
+   - **In-Browser Microphone Recorder (`LiveRecorder.tsx`):** Records voice directly via browser Web Audio API, encodes raw PCM audio into standard 16-bit 22,050 Hz WAV on the fly (`wavEncoder.ts`), and verifies recording length.
+   - **Sample Audio Loader:** One-click preloaded healthy control and Parkinson's sample recordings for demonstration.
+
+2. **Analysis Results View (`/results` — `ResultsPage.tsx`):**
+   - **Verdict & Confidence Gauge (`ConfidenceRing.tsx`):** Displays detection classification with distance-from-margin confidence rating.
+   - **AudioProxy Severity Gauge (`SeverityGauge.tsx`):** 0–100 acoustic impairment meter categorized into *Mild (0–29)*, *Moderate (30–59)*, or *Severe (60–100)* with component penalties breakdown.
+   - **Plain-Language Patient Explanations (`PlainLanguageExplanation.tsx` / `plainLanguageExplainer.ts`):** Automatically translates complex acoustic anomalies and SHAP metrics into empathetic, jargon-free explanations for patients and families, complete with targeted wellness and vocal hygiene suggestions.
+   - **Clinician Biomechanical Breakdown (`ClinicalExplanation.tsx`):** In-depth technical synthesis detailing fundamental frequency ($F_0$), jitter perturbation, shimmer amplitude instability, and harmonics-to-noise ratio ($HNR$).
+   - **Interactive SHAP Bar Chart (`ShapChart.tsx`):** Horizontal attribution chart illustrating top features driving prediction toward Parkinson's (positive SHAP) vs. pulling toward healthy (negative SHAP).
+
+3. **Interactive SHAP Explainability Hub (`/shap` — `SHAPExplainabilityPage.tsx`):**
+   - **Global Feature Importance Rankings:** Displays top features derived across Dataset 1 test set (MFCC 24 Std, MFCC 26 Std, MFCC 2 Std, RMS Std, MFCC 14 Std, Jitter Local) with clinical descriptions.
+   - **Interactive Local SHAP Simulator:** Visual waterfall simulation demonstrating feature push/pull impact against baseline dataset expectations.
+   - **Pathophysiological Mapping:** Connects mathematical game-theoretic Shapley values with clinical dysarthria phenotypes (hypophonia, vocal tremor, articulatory decay).
+
+4. **Research & Benchmark Hub (`/research` — `ResearchOverviewPage.tsx`):**
+   - Unified 5-tab scientific portal presenting complete experimental data and paper reproductions:
+     - **Model Performance Tab (`ModelPerformancePage.tsx`):** Comparative metrics across LightGBM, XGBoost, Random Forest, Extra Trees, SVM, and KNN across Datasets 1, 2, and 3a.
+     - **UPDRS Severity Tab (`UPDRSSeverityPage.tsx`):** Audited MDS-UPDRS telemonitoring regression results (Table IV) detailing why speech features alone yield negative $R^2$ on unseen subjects.
+     - **Datasets Tab (`DatasetInfoPage.tsx`):** Audit of Datasets 1, 2, 3a, and 3b (Table I), documenting sample counts, patient ID availability, and data-leakage boundaries.
+     - **Feature Engineering Tab (`FeatureEngineeringPage.tsx`):** Comprehensive breakdown of 220 raw acoustic descriptors across 13 acoustic groups and the top-50 Mutual Information selection pipeline (Table II).
+     - **How It Works Tab (`HowItWorksPage.tsx`):** Architectural guide detailing signal processing, feature scaling, inference mechanics, and SHAP calculation.
+
+5. **Dashboard (`/dashboard` — `DashboardPage.tsx`):**
+   - System telemetry and live health checks.
+   - Model registry cards showing active classifier parameters, preprocessing pipelines, and benchmark accuracy.
+   - Telemetry analytics (total tests run, healthy vs. PD distribution, recent prediction activity feed).
+
+6. **Prediction History & Audit Log (`/history` — `HistoryPage.tsx`):**
+   - Audit trail of past voice analyses with date, filename, verdict, confidence, and AudioProxy score.
+   - **Advanced Multi-Criteria Filtering:** Filter records by diagnosis (All, Parkinson's, Healthy), severity stage (Mild, Moderate, Severe), date range, or text search.
+   - **Data Export:** Export filtered history records directly to CSV or JSON for clinical research.
+   - **Details Drawer:** Click any record to inspect complete 50-feature acoustic vectors and SHAP attributions.
+   - **Record Management:** Individual record deletion and cache clearing.
 
 ---
 
 ## 17. Backend REST API Reference
 
-The authoritative, interactive OpenAPI documentation is automatically served by FastAPI at **`http://127.0.0.1:8000/docs`**.
+The authoritative, interactive OpenAPI documentation is automatically served by FastAPI at **`http://127.0.0.1:8000/docs`** and **`http://127.0.0.1:8000/redoc`**.
 
-### All Endpoints Implemented in Backend
+### All 17 Endpoints Implemented in Backend
 
-#### 1. Full Analysis with SHAP & Severity
-- **Endpoint:** `POST /api/predict-full`
-- **Content-Type:** `multipart/form-data`
-- **Parameters:** `file` (Binary audio: `.wav`, `.mp3`, `.flac`, `.ogg`)
-- **Illustrative Response Payload:**
+#### A. Core Clinical Inference
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/predict-full` | **Primary analysis:** Full pipeline execution returning binary detection, AudioProxy severity, top SHAP attributions, acoustic features, and logs prediction. |
+| `POST` | `/api/predict` | **Quick detection:** Fast binary classification (`prediction`, `probability`, `confidence`). |
+| `POST` | `/api/severity` | **Acoustic severity:** Standalone AudioProxy computation (`score`, `stage`, `method`, `penalties`). |
+| `GET` | `/api/shap-plot/{prediction_id}` | Generates and returns a base64-encoded SHAP waterfall plot image for a specific prediction ID. |
+
+#### B. System Telemetry & Service Health
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/health` | Service health status probe reporting ML model load status and MongoDB connectivity. |
+| `GET` | `/api/dashboard` | Aggregated dashboard telemetry: active model metadata, benchmark summaries, and system stats. |
+| `GET` | `/api/stats` | High-level usage metrics (total predictions logged, healthy vs. PD class distribution counts). |
+| `GET` | `/api/activity` | Recent activity stream of past predictions with timestamps and diagnosis outcomes. |
+
+#### C. Prediction History & Audit Logging
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/history` | Paginated prediction history records (query params: `limit`, `skip`). |
+| `GET` | `/api/history-filtered` | Filtered history queries by `status` (Healthy/PD), `stage` (Mild/Moderate/Severe), `search`, `start_date`, `end_date`. |
+| `GET` | `/api/history/detail/{prediction_id}` | Detailed record retrieval including full 50-feature snapshot and SHAP attributions. |
+| `DELETE` | `/api/history/{prediction_id}` | Delete a specific prediction record from MongoDB or in-memory fallback. |
+
+#### D. Scientific Research & Benchmark Data
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/models/performance` | Paper Table III benchmark data across models (LightGBM, XGBoost, RF, SVM, KNN) and datasets (D1, D2, D3a). |
+| `GET` | `/api/explanations/global` | Global SHAP feature importance rankings and clinical descriptions from Dataset 1 test set. |
+| `GET` | `/api/severity/evaluations` | Paper Table IV MDS-UPDRS motor and total regression evaluation metrics (MAE, RMSE, $R^2$). |
+| `GET` | `/api/datasets` | Paper Table I dataset profiles (sample size, recordings, speaker-disjoint validation protocols, notes). |
+| `GET` | `/api/features` | Paper Table II feature engineering breakdown (220 raw features across 13 acoustic groups into top-50 selected). |
+
+---
+
+### Illustrative Payload Reference
+
+#### `POST /api/predict-full`
+**Input:** `multipart/form-data` with `file: <binary audio>`  
+**Response Structure:**
 ```json
 {
   "filename": "patient_voice_sample.wav",
+  "prediction_id": "c1f7a012-3456-4789-abcd-1234567890ef",
   "detection": {
     "prediction": "Parkinson's Disease",
     "probability": 0.894,
@@ -578,7 +665,9 @@ The authoritative, interactive OpenAPI documentation is automatically served by 
     "details": {
       "jitter_penalty": 18.2,
       "shimmer_penalty": 14.1,
-      "hnr_penalty": 10.2
+      "hnr_penalty": 10.2,
+      "voiced_penalty": 0.0,
+      "rms_penalty": 0.0
     }
   },
   "shap": {
@@ -599,32 +688,9 @@ The authoritative, interactive OpenAPI documentation is automatically served by 
     "hnr": 14.24,
     "voiced_fraction": 0.78
   },
-  "timestamp": "2026-09-12T12:00:00Z"
+  "timestamp": "2026-10-04T12:00:00Z"
 }
 ```
-
-#### 2. Quick Detection Only
-- **Endpoint:** `POST /api/predict`
-- **Content-Type:** `multipart/form-data`
-- **Response:** `{"prediction": "Parkinson's Disease", "probability": 0.894, "confidence": 78.8}`
-
-#### 3. Standalone Severity Estimation
-- **Endpoint:** `POST /api/severity`
-- **Content-Type:** `multipart/form-data`
-- **Response:** `{"score": 42.5, "stage": "Moderate", "method": "AudioProxy"}`
-
-#### 4. System Dashboard Telemetry
-- **Endpoint:** `GET /api/dashboard`
-- **Response:** Active model cards, benchmark datasets, pipeline configurations, and accuracy matrices.
-
-#### 5. Aggregate Usage Statistics
-- **Endpoint:** `GET /api/stats`
-- **Response:** Aggregate telemetry object (e.g., total analyses logged, class distributions). Returns zeroed fields if persistence is disabled.
-
-#### 6. Prediction History
-- **Endpoint:** `GET /api/history`
-- **Parameters:** `limit` (int, default: 20)
-- **Response:** Array of historical clinical analysis records (or empty list if MongoDB is offline).
 
 ---
 
@@ -692,48 +758,57 @@ The backend automatically loads environment settings from `backend/.env`. A temp
 
 | Variable Name | Required? | Default Value | Description |
 | :--- | :---: | :--- | :--- |
-| `PORT` | No | `8000` | Port on which the FastAPI server listens |
-| `HOST` | No | `127.0.0.1` | Host address binding (`0.0.0.0` for network exposure) |
-| `MONGO_URI` | No | `mongodb://localhost:27017` | Connection string for MongoDB database |
-| `DB_NAME` | No | `parkinson_xai` | Database name for logging prediction history |
-| `ENABLE_DB` | No | `false` | Set to `true` if MongoDB is running locally or via Atlas |
-| `CORS_ORIGINS`| No | `http://localhost:5173,http://127.0.0.1:5173` | Allowed frontend origins for CORS headers |
+| `MONGODB_URL` | No | *Empty / None* | MongoDB connection string (Atlas URI or `mongodb://localhost:27017/`). If left blank or template default, backend runs in zero-configuration in-memory mode. |
+| `DATABASE_NAME` | No | `parkinson_xai` | Database name for persisting clinical prediction history |
+| `CORS_ORIGINS` | No | `http://localhost:5173` | Comma-separated allowed frontend origins for CORS headers |
+| `MODEL_BASE_PATH` | No | `../models` | Relative or absolute path from `backend/` to serialized model artifacts directory |
 
 ```ini
 # Example backend/.env
-PORT=8000
-HOST=127.0.0.1
-ENABLE_DB=false
-MONGO_URI=mongodb://localhost:27017
-DB_NAME=parkinson_xai
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+# Leave empty for zero-setup in-memory operation:
+MONGODB_URL=
+DATABASE_NAME=parkinson_xai
+CORS_ORIGINS=http://localhost:5173
+MODEL_BASE_PATH=../models
 ```
 
 > [!NOTE]
-> **MongoDB is 100% Optional for Local Development:** If `ENABLE_DB=false` or if MongoDB is offline, the application runs smoothly in in-memory mode. Audio analysis, SHAP, and live predictions function normally.
+> **MongoDB is 100% Optional for Local Development:** If `MONGODB_URL` is empty, unset, or set to placeholder text, the backend logs a warning and runs cleanly in in-memory fallback mode. Voice analysis, DSP feature extraction, SHAP, and live predictions operate normally.
 
 ---
 
 ## 21. Running the Backend Service
 
-In your **Backend Terminal** (with `.venv` activated):
+> [!TIP]
+> **Folder Path Reminder:** If you extracted the repository archive or have nested folders, ensure you are inside `backend/` (e.g., `cd ParkinsonXAI-main\backend` or `cd backend`).
+
+### Method A: Using the PowerShell Startup Script (Windows)
+```powershell
+cd backend
+.\start_backend.ps1
+```
+*This script sets the Windows runtime temp path, verifies `.env`, and starts Uvicorn.*
+
+### Method B: Manual Command (Windows / Linux / macOS)
+In your **Backend Terminal** (with your Python environment active):
 
 ```bash
 cd backend
 # Windows: .\.venv\Scripts\Activate.ps1
 # Linux:   source .venv/bin/activate
-uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Expected Terminal Output:
 ```
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process using StatReload
-INFO:     Waiting for application startup.
+INFO:     === ParkinsonXAI starting up ===
 INFO:     [ModelLoader] Loaded detection model: LightGBMClassifier
 INFO:     [ModelLoader] Loaded feature pipeline: Imputer, VarianceThreshold, RobustScaler (50 features)
 INFO:     [ModelLoader] Loaded severity model / AudioProxy engine ready.
-INFO:     Application startup complete.
+INFO:     Models loaded ✓
+WARNING:  No MONGODB_URL set — running without database persistence.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     API docs available at: http://localhost:8000/docs
 ```
 
 ---
