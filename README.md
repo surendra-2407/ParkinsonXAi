@@ -230,10 +230,12 @@ The authoritative source for Python dependencies is **`backend/requirements_back
 > **Scikit-Learn Serialization Notice:** Serialized `.pkl` artifacts may emit minor version-compatibility warnings during loading if serialized under different minor patch releases. The recovered model artifacts have been smoke-tested and execute successfully, but keeping aligned versions (`scikit-learn 1.5.1`) is recommended.
 
 ### Frontend Stack
-- **Framework:** React 19.x with TypeScript 5.x
-- **Bundler:** Vite 6.x
+- **Framework:** React 19.x with TypeScript 5.x / 6.x
+- **Bundler:** Vite 8.x
+- **Routing:** React Router 7.x
+- **Charts & Visualizations:** Recharts 3.x
 - **Styling Architecture:** Pure CSS Design Tokens (`App.css`, `index.css`) featuring custom medical glassmorphism, responsive grid layouts, and smooth micro-animations.
-- **Icons:** `lucide-react` (SVG icons)
+- **Icons & Badges:** Pure embedded SVG and medical UI system (Zero external icon dependencies)
 
 ---
 
@@ -252,15 +254,20 @@ ParkinsonXAi-main/
 │       └── homies_studio_logo.png      <-- Official Homies Studio branding badge
 │
 ├── backend/                            <-- FastAPI backend microservice
+│   ├── README.md                       <-- Backend microservice architecture & REST documentation
 │   ├── main.py                         <-- FastAPI entry point, CORS, routes, lifecycle
 │   ├── inference.py                    <-- DSP extraction, pipeline transform, SHAP, severity
 │   ├── models_loader.py                <-- Robust model loading, cache, and validation
 │   ├── schemas.py                      <-- Pydantic request/response data contracts
 │   ├── database.py                     <-- MongoDB async client & fallback in-memory handler
+│   ├── setup_mongodb.py                <-- MongoDB collection & index initialization
+│   ├── start_backend.ps1               <-- PowerShell quick start script for backend
+│   ├── install_deps.ps1                <-- PowerShell dependency installer script
 │   ├── requirements_backend.txt        <-- Isolated backend pip dependencies (Authoritative)
 │   └── .env.example                    <-- Template environment variables
 │
 ├── frontend/                           <-- React 19 + TypeScript + Vite UI
+│   ├── README.md                       <-- Frontend architecture, UI pages & setup guide
 │   ├── index.html                      <-- HTML entry point with modern typography
 │   ├── package.json                    <-- Node scripts & frontend dependencies
 │   ├── vite.config.ts                  <-- Vite configuration & proxy settings
@@ -282,7 +289,7 @@ ParkinsonXAi-main/
 │       │   ├── UPDRSSeverityPage.tsx   <-- MDS-UPDRS regression evaluations & R² limits
 │       │   └── HowItWorksPage.tsx      <-- Methodology & acoustic science guide
 │       ├── components/
-│       │   ├── Navigation.tsx          <-- Top navigation bar with backend health indicator
+│       │   ├── Navigation.tsx          <-- Top navigation bar with 5 links & mobile drawer
 │       │   ├── AudioInput.tsx / AudioUpload.tsx <-- Audio dropzone & file validation
 │       │   ├── LiveRecorder.tsx        <-- In-browser microphone recorder & WAV converter
 │       │   ├── PlainLanguageExplanation.tsx <-- Accessible patient-friendly translation & recommendations
@@ -304,13 +311,25 @@ ParkinsonXAi-main/
 │           └── useSession.ts           <-- Anonymous session tracking
 │
 ├── models/                             <-- Serialized ML & Preprocessing Artifacts (Git LFS)
-│   ├── detection_best_model.pkl        <-- Deployed Tuned LightGBM binary classifier (Dataset 1)
+│   ├── detection_best_model.pkl        <-- Deployed Tuned LightGBM binary classifier (1.36 MB, Dataset 1)
+│   ├── severity_best_model.pkl         <-- Tabular UPDRS RandomForestRegressor (37.16 MB, Dataset 3b)
 │   ├── audio_imputer.pkl               <-- Scikit-learn SimpleImputer (Median)
 │   ├── audio_vt.pkl                    <-- VarianceThreshold transformer
 │   ├── audio_scaler.pkl                <-- RobustScaler transformer
 │   ├── audio_top50_features.json       <-- Selected 50 acoustic feature names
+│   ├── audio_feature_cols_filtered.json<-- Filtered acoustic feature column names
+│   ├── audio_feature_config.json       <-- Complete feature configuration & metadata
 │   ├── detection_label_encoder.pkl     <-- Label encoder (0: Healthy, 1: Parkinson's)
-│   ├── severity_best_model.pkl         <-- Tabular UPDRS RandomForestRegressor (Dataset 3b)
+│   ├── detection_scaler.pkl            <-- Deployed detection model feature scaler
+│   ├── detection_imputer.pkl           <-- Deployed detection model feature imputer
+│   ├── detection_feature_config.json   <-- Detection feature set configuration
+│   ├── model_metadata.json             <-- Registry metadata for all model artifacts
+│   ├── ds2_feature_cols.json           <-- Dataset 2 acoustic feature schema
+│   ├── ds2_imputer.pkl / ds2_scaler.pkl<-- Dataset 2 preprocessing pipeline
+│   ├── ds3a_imputer.pkl / ds3a_scaler.pkl <-- Dataset 3a preprocessing pipeline
+│   ├── ds3b_feature_cols.json          <-- Dataset 3b UPDRS feature schema
+│   ├── severity_feature_cols.json      <-- Severity regression feature schema
+│   ├── severity_model_config.json      <-- UPDRS severity regression configuration
 │   └── severity_scaler.pkl             <-- Severity feature scaler
 │
 ├── datasets/                           <-- Raw and LFS-tracked dataset archives
@@ -327,17 +346,28 @@ ParkinsonXAi-main/
 │   └── dataset2_features.csv           <-- Cleaned Dataset 2 tabular records
 │
 ├── scripts/                            <-- Research, extraction, training & audit scripts
-│   ├── phase1_2_data_prep.py          <-- Dataset loading & directory audit
-│   ├── phase3_splitting.py            <-- Leakage-free GroupKFold & GroupShuffleSplit logic
-│   ├── phase6_audio_features.py       <-- Batch Librosa & Praat feature extraction
-│   ├── phase7_audio_models.py         <-- Model training & cross-validation on WAV features
-│   ├── phase8_feature_selection.py    <-- Mutual Information & Top-K selection
-│   ├── phase10_13_optuna_ensemble.py  <-- Optuna hyperparameter tuning & ensemble voting
-│   └── generate_dummy_models.py       <-- Fallback generator for CI/local testing
+│   ├── phase0_setup.py                 <-- Environment verification and workspace directory setup
+│   ├── phase1_dataset_audit.py         <-- Complete dataset inventory, record count & leakage audit
+│   ├── phase3_splitting.py             <-- Leakage-free GroupKFold & GroupShuffleSplit logic
+│   ├── phase5_preprocessing.py         <-- Median imputation, variance filtering & robust scaling
+│   ├── phase6_audio_features.py        <-- Batch Librosa & Praat Parselmouth feature extraction
+│   ├── phase7_8_9_models.py            <-- Multi-model training, cross-validation & feature selection
+│   ├── phase10_13_optuna_ensemble.py   <-- Optuna hyperparameter optimization & ensemble voting
+│   ├── phase15_severity_model.py       <-- MDS-UPDRS regression model training & evaluation
+│   ├── phase16_inference_pipeline.py   <-- Local pipeline smoke-test & end-to-end inference verification
+│   ├── phase16_18_19_20_finalize.py    <-- Final pipeline packaging & benchmark consolidation
+│   ├── phase17_shap_analysis.py        <-- TreeSHAP feature attribution calculation & plot generation
+│   ├── run_all_phases.py               <-- Master execution script for entire research pipeline
+│   ├── _speech_push90.py               <-- Dataset 2 90%+ patient-independent benchmark script
+│   ├── _uci_push90.py                  <-- Dataset 3a comparative baseline validation script
+│   └── _validate_all_models.py         <-- Model artifact integrity & smoke test validation
 │
 └── reports/                            <-- Academic audits & experimental logs
     ├── dataset_audit.md                <-- Comprehensive provenance & leakage report
-    └── final_ml_report.md              <-- Benchmark comparison across datasets
+    ├── dataset_audit.csv               <-- Tabular dataset audit data
+    ├── dataset_roles.md                <-- Architectural mapping of dataset responsibilities
+    ├── final_ml_report.md              <-- Benchmark comparison across datasets (Tables I-IV)
+    └── preprocessing_report.md         <-- Preprocessing transformations & scaling report
 ```
 
 ---
@@ -824,7 +854,7 @@ npm run dev
 
 ### Expected Terminal Output:
 ```
-  VITE v6.x.x  ready in 240 ms
+  VITE v8.x.x  ready in 240 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
@@ -836,14 +866,15 @@ Open your browser and navigate to: **`http://localhost:5173`**
 
 ## 23. Quick Start Summary
 
-```bash
+```powershell
 # ======================== TERMINAL 1 (BACKEND) ========================
-cd backend
-.\.venv\Scripts\Activate.ps1
-uvicorn main:app --reload
+cd E:\ParkinsonXAI-main\ParkinsonXAI-main\backend
+# If using a virtual environment:
+# .\.venv\Scripts\Activate.ps1
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 # ======================== TERMINAL 2 (FRONTEND) =======================
-cd frontend
+cd E:\ParkinsonXAI-main\ParkinsonXAI-main\frontend
 npm run dev
 
 # Open Browser: http://localhost:5173
@@ -887,8 +918,9 @@ Follow this 12-step verification protocol to confirm that the complete pipeline 
 
 ### TEST 6 — Frontend UI Loading & Navigation
 - Open **`http://localhost:5173`**.
-- Click through all navigation tabs: **Analyze**, **Dashboard**, **History**, and **How It Works**.
-- **Pass Criteria:** All four views render with glassmorphic styling, zero broken layouts, and no console exceptions.
+- Click through all navigation items: **Voice Analysis** (`/`), **Dashboard** (`/dashboard`), **History** (`/history`), **SHAP Explainability** (`/shap`), and **Research Overview** (`/research`).
+- On the Research Overview page, switch between the 5 nested tabs: **Model Performance**, **UPDRS Severity**, **Datasets**, **Feature Engineering**, and **How It Works**.
+- **Pass Criteria:** All views render with clinical glassmorphic styling, responsive charts, zero broken layouts, and no console exceptions.
 
 ### TEST 7 — Audio Upload & Waveform Rendering
 - On the **Analyze** page, drag and drop any test audio file (e.g., extracted from `datasets/dataset_1/`).
