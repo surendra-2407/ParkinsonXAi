@@ -322,6 +322,8 @@ async def predict_full(
             "confidence": det_raw["confidence"],
             "probabilities": det_raw["probabilities"],
             "model_used": det_raw["model_used"],
+            "voice_quality": det_raw.get("voice_quality"),
+            "is_uncertain": det_raw.get("is_uncertain", False),
         },
         "severity": sev_result,
         "shap": {
@@ -355,6 +357,9 @@ async def predict_full(
             "confidence": _f(det_raw["confidence"]),
             "probabilities": {str(k): _f(v) for k, v in det_raw["probabilities"].items()},
             "model_used": str(det_raw["model_used"]),
+            "voice_quality": _f(det_raw.get("voice_quality", 1.0)),
+            "quality_warning": det_raw.get("quality_warning"),
+            "is_uncertain": bool(det_raw.get("is_uncertain", False)),
         },
         "severity": {
             "motor_updrs": _f(sev_result["motor_updrs"]),
@@ -574,3 +579,317 @@ async def get_shap_plot(prediction_id: str):
     img_bytes = base64.b64decode(b64)
     from fastapi.responses import Response
     return Response(content=img_bytes, media_type="image/png")
+
+
+# ── Enhanced History with search/filter ──────────────────────────────────────
+
+@app.get("/api/history/detail/{prediction_id}", tags=["Analytics"])
+async def get_prediction_detail(prediction_id: str):
+    """Return full prediction document by ID."""
+    col = db_module.get_predictions_col()
+    if col is None:
+        raise HTTPException(status_code=503, detail="Database not connected.")
+    doc = await col.find_one({"_id": prediction_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Prediction not found.")
+    doc["_id"] = str(doc["_id"])
+    # Serialize datetime
+    if "timestamp" in doc and hasattr(doc["timestamp"], "isoformat"):
+        doc["timestamp"] = doc["timestamp"].isoformat()
+    return JSONResponse(content=doc)
+
+
+@app.delete("/api/history/{prediction_id}", tags=["Analytics"])
+async def delete_prediction(prediction_id: str):
+    """Delete a prediction record from MongoDB."""
+    col = db_module.get_predictions_col()
+    if col is None:
+        raise HTTPException(status_code=503, detail="Database not connected.")
+    result = await col.delete_one({"_id": prediction_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Prediction not found.")
+    return JSONResponse(content={"message": "Deleted", "prediction_id": prediction_id})
+
+
+@app.get("/api/history-filtered", tags=["Analytics"])
+async def get_history_filtered(
+    page: int = 1,
+    page_size: int = 10,
+    search: Optional[str] = None,
+    label: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
+    """Paginated history with search (filename), label filter, and date range."""
+    col = db_module.get_predictions_col()
+    if col is None:
+        return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+
+    page = max(1, page)
+    page_size = min(50, max(1, page_size))
+    skip = (page - 1) * page_size
+
+    # Build filter query
+    query: dict = {}
+    if search:
+        import re
+        query["filename"] = {"$regex": re.escape(search), "$options": "i"}
+    if label and label in ("Parkinson", "Healthy", "Uncertain"):
+        query["detection.label"] = label
+    if date_from or date_to:
+        ts_filter: dict = {}
+        try:
+            if date_from:
+                ts_filter["$gte"] = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+            if date_to:
+                ts_filter["$lte"] = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc)
+            query["timestamp"] = ts_filter
+        except ValueError:
+            pass
+
+    try:
+        total = await col.count_documents(query)
+        cursor = col.find(query, {
+            "_id": 1, "filename": 1, "timestamp": 1,
+            "detection.label": 1, "detection.confidence": 1,
+            "detection.voice_quality": 1, "detection.is_uncertain": 1,
+            "severity.motor_updrs": 1, "severity.total_updrs": 1,
+            "severity.severity_level": 1, "severity.severity_score": 1,
+            "shap.top_features": 1, "processing_time_ms": 1,
+        }).sort("timestamp", -1).skip(skip).limit(page_size)
+
+        items = []
+        async for doc in cursor:
+            det = doc.get("detection") or {}
+            sev = doc.get("severity") or {}
+            shap_d = doc.get("shap") or {}
+            top_feat = shap_d.get("top_features") or []
+            ts = doc.get("timestamp")
+            items.append({
+                "prediction_id": str(doc["_id"]),
+                "filename": doc.get("filename", ""),
+                "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+                "detection_label": det.get("label"),
+                "confidence": det.get("confidence"),
+                "voice_quality": det.get("voice_quality"),
+                "is_uncertain": det.get("is_uncertain", False),
+                "motor_updrs": sev.get("motor_updrs"),
+                "total_updrs": sev.get("total_updrs"),
+                "severity_level": sev.get("severity_level"),
+                "severity_score": sev.get("severity_score"),
+                "shap_top_feature": top_feat[0].get("feature") if top_feat else None,
+                "processing_time_ms": doc.get("processing_time_ms"),
+            })
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": math.ceil(total / page_size) if total > 0 else 0,
+        }
+    except Exception as e:
+        logger.error(f"Filtered history query failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch history.")
+
+
+@app.get("/api/activity", tags=["Analytics"])
+async def get_activity(days: int = 30):
+    """Return daily prediction counts for the past N days (for activity chart)."""
+    col = db_module.get_predictions_col()
+    if col is None:
+        return {"activity": []}
+    try:
+        from datetime import timedelta
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": {
+                    "year": {"$year": "$timestamp"},
+                    "month": {"$month": "$timestamp"},
+                    "day": {"$dayOfMonth": "$timestamp"},
+                },
+                "count": {"$sum": 1},
+                "parkinson": {"$sum": {"$cond": [{"$eq": ["$detection.label", "Parkinson"]}, 1, 0]}},
+                "healthy": {"$sum": {"$cond": [{"$eq": ["$detection.label", "Healthy"]}, 1, 0]}},
+            }},
+            {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}},
+        ]
+        result = []
+        async for doc in col.aggregate(pipeline):
+            d = doc["_id"]
+            result.append({
+                "date": f"{d['year']}-{d['month']:02d}-{d['day']:02d}",
+                "count": doc["count"],
+                "parkinson": doc["parkinson"],
+                "healthy": doc["healthy"],
+            })
+        return {"activity": result}
+    except Exception as e:
+        logger.error(f"Activity query failed: {e}")
+        return {"activity": []}
+
+
+# ── Research Paper Data Endpoints ─────────────────────────────────────────────
+
+@app.get("/api/models/performance", tags=["Research"])
+async def get_model_performance():
+    """
+    Model performance data from the research paper (Table III).
+    Labelled as reported held-out results — not live prediction results.
+    """
+    return JSONResponse(content={
+        "source": "Research paper — Table III (held-out test set results)",
+        "note": "D1 has no recoverable speaker IDs; record-level results cannot establish patient-independent generalization.",
+        "models": [
+            {"dataset": "D1", "dataset_name": "Voice WAV", "model": "LightGBM", "protocol": "Record-level",
+             "accuracy": 0.9649, "f1": 0.9655, "recall": 1.000, "roc_auc": 0.9995, "is_primary": True},
+            {"dataset": "D1", "dataset_name": "Voice WAV", "model": "Random Forest", "protocol": "Record-level",
+             "accuracy": 0.9649, "f1": 0.9655, "recall": 1.000, "roc_auc": 0.9975, "is_primary": False},
+            {"dataset": "D2", "dataset_name": "TQWT Speech", "model": "LightGBM", "protocol": "Speaker-disjoint",
+             "accuracy": 0.8596, "f1": 0.9059, "recall": 0.951, "roc_auc": 0.9274, "is_primary": False},
+            {"dataset": "D2", "dataset_name": "TQWT Speech", "model": "CatBoost", "protocol": "Speaker-disjoint",
+             "accuracy": 0.7982, "f1": 0.8686, "recall": 0.938, "roc_auc": 0.8773, "is_primary": False},
+            {"dataset": "D3a", "dataset_name": "UCI Parkinson's", "model": "SVM", "protocol": "Speaker-disjoint",
+             "accuracy": 0.8000, "f1": 0.8889, "recall": 1.000, "roc_auc": 0.6319, "is_primary": False},
+            {"dataset": "D3a", "dataset_name": "UCI Parkinson's", "model": "LightGBM", "protocol": "Speaker-disjoint",
+             "accuracy": 0.7667, "f1": 0.8679, "recall": 0.958, "roc_auc": 0.4792, "is_primary": False},
+            {"dataset": "D3a", "dataset_name": "UCI Parkinson's", "model": "XGBoost", "protocol": "Speaker-disjoint",
+             "accuracy": 0.6333, "f1": 0.7755, "recall": 0.792, "roc_auc": 0.5972, "is_primary": False},
+        ]
+    })
+
+
+@app.get("/api/explanations/global", tags=["Research"])
+async def get_global_shap():
+    """
+    Global SHAP feature importance from the research paper.
+    These are mean |SHAP| values averaged over the held-out D1 test set.
+    Individual prediction SHAP values are computed live by /api/predict-full.
+    """
+    return JSONResponse(content={
+        "source": "Research paper — global SHAP analysis on D1 test set",
+        "note": "Mean absolute SHAP values represent average feature importance, not causation.",
+        "features": [
+            {"rank": 1, "feature": "mfcc_24_std", "display": "MFCC 24 Std", "mean_abs_shap": 1.958,
+             "group": "MFCC", "description": "Standard deviation of 24th Mel-frequency cepstral coefficient — captures voice texture variation."},
+            {"rank": 2, "feature": "mfcc_26_std", "display": "MFCC 26 Std", "mean_abs_shap": 1.206,
+             "group": "MFCC", "description": "Std of 26th MFCC — related to spectral fine structure variability."},
+            {"rank": 3, "feature": "mfcc_2_std", "display": "MFCC 2 Std", "mean_abs_shap": 0.963,
+             "group": "MFCC", "description": "Std of 2nd MFCC — captures overall spectral shape variability."},
+            {"rank": 4, "feature": "rms_std", "display": "RMS Energy Std", "mean_abs_shap": 0.812,
+             "group": "Energy", "description": "Root-mean-square energy variability — reflects loudness instability (hypophonia)."},
+            {"rank": 5, "feature": "mfcc_14_std", "display": "MFCC 14 Std", "mean_abs_shap": 0.703,
+             "group": "MFCC", "description": "Std of 14th MFCC — mid-range spectral variability."},
+            {"rank": 6, "feature": "jitter_local", "display": "Jitter (Local)", "mean_abs_shap": 0.196,
+             "group": "Jitter", "description": "Cycle-to-cycle pitch period variation — a classic vocal tremor indicator in Parkinson's."},
+        ]
+    })
+
+
+@app.get("/api/severity/evaluations", tags=["Research"])
+async def get_severity_evaluations():
+    """
+    UPDRS regression evaluation data from the research paper (Table IV).
+    Negative R² values indicate models do not generalize reliably to unseen subjects.
+    """
+    return JSONResponse(content={
+        "source": "Research paper — Table IV (UPDRS regression, speaker-disjoint)",
+        "note": (
+            "Negative R² scores indicate the regression models do not yet achieve reliable "
+            "generalization to unseen subjects on this dataset. "
+            "The inference service uses a deterministic audio-proxy score when UPDRS inputs are unavailable — "
+            "this proxy must NOT be interpreted as a clinical UPDRS score."
+        ),
+        "motor": [
+            {"model": "Extra Trees", "mae": 7.25, "rmse": 8.72, "r2": -1.81},
+            {"model": "XGBoost",     "mae": 7.96, "rmse": 8.72, "r2": -1.81},
+            {"model": "LightGBM",    "mae": 8.01, "rmse": 9.09, "r2": -2.05},
+            {"model": "Linear",      "mae": 9.20, "rmse": 10.41,"r2": -3.00},
+        ],
+        "total": [
+            {"model": "LightGBM",     "mae": 7.22, "rmse": 9.06,  "r2": -2.33},
+            {"model": "XGBoost",      "mae": 7.97, "rmse": 9.30,  "r2": -2.51},
+            {"model": "Random Forest","mae": 8.98, "rmse": 11.70, "r2": -4.56},
+            {"model": "Linear",       "mae": 11.81,"rmse": 12.94, "r2": -5.80},
+        ]
+    })
+
+
+@app.get("/api/datasets", tags=["Research"])
+async def get_datasets():
+    """Dataset information from the research paper (Table I)."""
+    return JSONResponse(content={
+        "source": "Research paper — Table I",
+        "datasets": [
+            {
+                "id": "D1", "name": "Voice WAV Dataset",
+                "recordings": 1134, "speakers": None,
+                "healthy_count": 574, "pd_count": 560,
+                "target": "Binary (HC / PD)", "target_type": "detection",
+                "purpose": "Primary detection model training & evaluation",
+                "protocol": "Record-level (no recoverable speaker IDs)",
+                "notes": "No speaker ID recovery possible; results cannot establish patient-independent generalization.",
+                "model_used": "LightGBM (96.49% accuracy, AUC 0.9995)",
+            },
+            {
+                "id": "D2", "name": "TQWT Speech Features",
+                "recordings": 756, "speakers": 252,
+                "healthy_count": 192, "pd_count": 564,
+                "target": "Binary (HC / PD)", "target_type": "detection",
+                "purpose": "Speaker-disjoint generalization benchmark",
+                "protocol": "Speaker-disjoint cross-validation",
+                "notes": "252 unique speakers; speaker-disjoint split ensures patient-independent evaluation.",
+                "model_used": "LightGBM (85.96% accuracy, AUC 0.9274)",
+            },
+            {
+                "id": "D3a", "name": "UCI Parkinson's Dataset",
+                "recordings": 195, "speakers": 31,
+                "healthy_count": 48, "pd_count": 147,
+                "target": "Binary (HC / PD)", "target_type": "detection",
+                "purpose": "Benchmark comparison against prior work",
+                "protocol": "Speaker-disjoint (LOSO)",
+                "notes": "Small dataset; SVM achieves 80% with 100% recall.",
+                "model_used": "SVM (80.00%) / LightGBM (76.67%)",
+            },
+            {
+                "id": "D3b", "name": "Parkinson's Telemonitoring",
+                "recordings": 5875, "speakers": 42,
+                "healthy_count": None, "pd_count": None,
+                "target": "UPDRS Score (regression)", "target_type": "regression",
+                "purpose": "Severity prediction (motor & total UPDRS)",
+                "protocol": "Speaker-disjoint regression",
+                "notes": "Negative R² values; models do not yet generalize reliably to unseen subjects.",
+                "model_used": "LightGBM (Motor MAE: 7.25, Total MAE: 7.22)",
+            },
+        ]
+    })
+
+
+@app.get("/api/features", tags=["Research"])
+async def get_features():
+    """Feature engineering data from the research paper (Table II)."""
+    return JSONResponse(content={
+        "source": "Research paper — Table II",
+        "total_raw": 220,
+        "total_non_degenerate": 219,
+        "total_selected": 50,
+        "selection_method": "Mutual Information (top 50 from 219)",
+        "feature_groups": [
+            {"group": "MFCC", "count": 160, "description": "40 coefficients × mean + std + delta + delta-delta. Capture vocal tract shape and articulatory precision."},
+            {"group": "Chroma", "count": 24, "description": "12 pitch classes × mean + std. Represent harmonic content and pitch stability."},
+            {"group": "Spectral Centroid / Bandwidth / Roll-off", "count": 6, "description": "Mean + std for each. Capture spectral brightness, spread, and energy concentration."},
+            {"group": "Spectral Contrast", "count": 7, "description": "7 sub-bands. Measures the difference between spectral peaks and valleys."},
+            {"group": "Spectral Flatness", "count": 1, "description": "Single value. Distinguishes tonal voice from noisy, breathy speech."},
+            {"group": "RMS / ZCR", "count": 4, "description": "Energy (mean + std) and zero-crossing rate (mean + std). Quantify loudness and speech rate."},
+            {"group": "Mel Spectrogram", "count": 3, "description": "Mean, std, and skewness of 64-band log mel-spectrogram. Capture overall spectral texture."},
+            {"group": "pYIN F0", "count": 3, "description": "Mean, std, and voiced fraction. Pitch estimation via probabilistic YIN algorithm."},
+            {"group": "Praat F0", "count": 2, "description": "Mean and std of fundamental frequency via Praat/Parselmouth."},
+            {"group": "Jitter", "count": 3, "description": "Local, RAP, PPQ5. Cycle-to-cycle pitch period variation — key Parkinson's tremor indicator."},
+            {"group": "Shimmer", "count": 3, "description": "Local, APQ3, APQ5. Amplitude variation between consecutive cycles — hypophonia marker."},
+            {"group": "HNR", "count": 1, "description": "Harmonics-to-Noise Ratio. Measures voice breathiness and hoarseness."},
+            {"group": "Formants", "count": 3, "description": "F1, F2, F3 mean frequencies. Reflect vocal tract resonance and articulation quality."},
+        ]
+    })
+

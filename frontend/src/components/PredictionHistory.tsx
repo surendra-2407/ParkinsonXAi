@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { parkinsonApi } from '../api/parkinsonApi'
 import type { HistoryItem, HistoryResponse } from '../api/parkinsonApi'
 
-export default function PredictionHistory() {
+export default function PredictionHistory({ refreshTick }: { refreshTick?: number }) {
   const [data, setData] = useState<HistoryResponse | null>(null)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -14,7 +14,7 @@ export default function PredictionHistory() {
       .then(r => { setData(r.data); setError(null) })
       .catch(e => setError(e.message || 'Failed to load history'))
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, refreshTick])
 
   if (loading) return (
     <div className="flex items-center justify-center" style={{ height: 200 }}>

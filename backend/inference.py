@@ -222,33 +222,29 @@ def extract_audio_features(wav_bytes: bytes) -> Dict[str, float]:
 
 # ── Detection ─────────────────────────────────────────────────────────────────
 
+# Minimum confidence threshold below which we surface a note (no override)
+_LOW_CONFIDENCE_THRESHOLD = 0.60
+
+
 def predict_detection(
     raw_features: Dict[str, float],
     registry,
 ) -> Dict:
     """
     Run the detection pipeline:
-      raw_features → imputer → VT → scaler → top50 select → LightGBM
-    Returns: {label, confidence, probabilities}
+      raw_features → imputer → VT → scaler → top50 → LightGBM
+    Always returns the model's actual Healthy/Parkinson prediction.
+    Voice quality is stored as metadata only — it never overrides the label.
     """
+    # Compute voice quality for informational metadata only
+    vq = check_voice_quality(raw_features)
+    voice_quality  = vq["quality_score"]
+    quality_warning = None  # no longer surfaced as a blocking warning
+
     # Build DataFrame in full feature order from audio_feature_config
-    all_cols = registry.detection_feature_config.get("features_used", [])
-    # Use all raw feature columns (imputer handles missing)
     df = pd.DataFrame([raw_features])
 
-    # Align to all trained columns
-    trained_cols_json = None
-    try:
-        import json, pathlib
-        p = pathlib.Path("../models/audio_feature_cols_filtered.json")
-        if p.exists():
-            with open(p) as f:
-                trained_cols_json = json.load(f)
-    except Exception:
-        pass
-
-    # Apply pipeline: imputer → VT → scaler → top-50 select
-    # 1) Imputer — needs the exact column order it was trained on
+    # 1) Imputer
     try:
         imp = registry.detection_imputer
         imp_feature_names = list(imp.feature_names_in_) if hasattr(imp, "feature_names_in_") else list(df.columns)
@@ -282,12 +278,9 @@ def predict_detection(
 
     # 4) Top-50 feature selection
     top50 = registry.detection_top50_features
-    available_top50 = [f for f in top50 if f in df_scaled.columns]
-    if len(available_top50) == 0:
-        available_top50 = list(df_scaled.columns[:50])
     df_final = df_scaled.reindex(columns=top50, fill_value=0.0)
 
-    # 5) Predict
+    # 5) Predict — always trust the model output
     model = registry.detection_model
     proba = model.predict_proba(df_final)[0]
     classes = model.classes_
@@ -298,18 +291,29 @@ def predict_detection(
         label_name = label_enc.get(str(int(cls)), str(cls))
         prob_dict[label_name] = float(p)
 
-    # Predicted label
     pred_idx = int(np.argmax(proba))
     pred_class = classes[pred_idx]
     pred_label = label_enc.get(str(int(pred_class)), str(pred_class))
     confidence = float(proba[pred_idx])
 
+    # Low confidence is purely informational — no label change
+    is_low_confidence = confidence < _LOW_CONFIDENCE_THRESHOLD
+
+    logger.info(
+        f"Detection: {pred_label} @ {confidence:.3f} "
+        f"(voice_quality={voice_quality:.3f}, low_conf={is_low_confidence})"
+    )
+
     return {
-        "label": pred_label,
+        "label": pred_label,            # always Healthy or Parkinson
         "confidence": confidence,
         "probabilities": prob_dict,
         "model_used": "LightGBM_Tuned",
-        "df_final": df_final,  # pass downstream for SHAP
+        "voice_quality": voice_quality,
+        "quality_warning": None,        # no blocking warnings
+        "is_uncertain": False,          # always False — no uncertainty gate
+        "is_low_confidence": is_low_confidence,
+        "df_final": df_final,           # pass downstream for SHAP
     }
 
 
@@ -494,6 +498,81 @@ def _render_shap_bar(top_features: List[Dict]) -> Optional[str]:
     except Exception as e:
         logger.error(f"SHAP plot rendering failed: {e}")
         return None
+
+
+# ── Voice Quality Guard ──────────────────────────────────────────────────────
+
+def check_voice_quality(raw_features: Dict[str, float]) -> Dict:
+    """
+    Assess whether the uploaded audio contains a human voice.
+    Returns a dict with:
+      - is_voice     : bool  — True if likely a voiced recording
+      - quality_score: float — 0.0 (silence/noise) to 1.0 (clear voice)
+      - warning      : str | None — human-readable warning message
+    
+    Uses voiced_fraction, f0_mean, rms_mean, and hnr as indicators.
+    These are exactly the features that are zero/near-zero for non-voice audio.
+    """
+    voiced_fraction = raw_features.get("voiced_fraction", 0.0)
+    f0_mean         = raw_features.get("f0_mean", 0.0)
+    rms_mean        = raw_features.get("rms_mean", 0.0)
+    hnr             = raw_features.get("hnr", 0.0)
+
+    # Score each component (0–1 each)
+    # voiced_fraction: fraction of frames detected as voiced
+    vf_score  = min(voiced_fraction / 0.3, 1.0)          # needs at least 30% voiced frames
+    # f0_mean: fundamental frequency, 0 means no pitch detected
+    f0_score  = 1.0 if f0_mean > 50 else (f0_mean / 50.0)  # expect 50–300 Hz for voice
+    # rms_mean: energy — very low means silence
+    rms_score = min(rms_mean / 0.005, 1.0)               # needs some energy
+    # hnr: harmonics-to-noise ratio — very low means no harmonic structure
+    hnr_score = min(max(hnr, 0.0) / 5.0, 1.0)            # needs at least 5 dB HNR
+
+    # Weighted quality score
+    quality_score = (
+        0.40 * vf_score +
+        0.30 * f0_score +
+        0.20 * rms_score +
+        0.10 * hnr_score
+    )
+
+    is_voice = quality_score >= 0.20  # minimum threshold
+
+    warning = None
+    if not is_voice:
+        if rms_mean < 0.001:
+            warning = (
+                "The audio appears to be silent or nearly inaudible. "
+                "Please record in a quiet environment and speak clearly."
+            )
+        elif voiced_fraction < 0.05 and f0_mean < 10:
+            warning = (
+                "No human voice was detected in the audio. "
+                "This tool only works with voice/speech recordings. "
+                "Please upload a sustained vowel sound (e.g. 'ahhh') or natural speech."
+            )
+        else:
+            warning = (
+                "The audio quality is too low for reliable Parkinson's analysis. "
+                "Please use a clear speech recording (minimum 3 seconds of sustained voice)."
+            )
+    elif quality_score < 0.45:
+        warning = (
+            "Low voice quality detected — results may be less reliable. "
+            "For best results use a sustained vowel recording in a quiet environment."
+        )
+
+    return {
+        "is_voice": is_voice,
+        "quality_score": round(quality_score, 3),
+        "warning": warning,
+        "details": {
+            "voiced_fraction": round(voiced_fraction, 3),
+            "f0_mean": round(f0_mean, 1),
+            "rms_mean": round(rms_mean, 5),
+            "hnr": round(hnr, 1),
+        },
+    }
 
 
 # ── Snapshot helper ───────────────────────────────────────────────────────────
